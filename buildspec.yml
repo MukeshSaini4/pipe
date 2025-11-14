@@ -26,34 +26,42 @@ phases:
     commands:
       - Write-Host "Publishing web projects to $env:PUBLISH_DIR..."
       - |
-        powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR; ^
-          New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null; ^
-          Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object { ^
-            if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) { ^
-              Write-Host "Publishing $($_.FullName)"; ^
-              & 'C:\dotnet\dotnet.exe' publish $_.FullName -c $env:CONFIGURATION -o (Join-Path $pubRoot $_.BaseName) ^
-            } ^
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "
+          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
+          New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null;
+          Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
+            if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
+              Write-Host 'Publishing' $_.FullName;
+              & 'C:\dotnet\dotnet.exe' publish $_.FullName -c $env:CONFIGURATION -o (Join-Path $pubRoot $_.BaseName)
+            }
           }
+        "
+
       - Write-Host "Preparing CodeDeploy bundle (artifact.zip)..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-          $dist = Join-Path (Get-Location) 'dist'; ^
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist; ^
-          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null; ^
-          # copy published output(s) into dist\app
-          Get-ChildItem -Path $env:PUBLISH_DIR -Directory | ForEach-Object { ^
-            $dest = Join-Path (Join-Path $dist 'app') $_.Name; ^
-            Write-Host "Copying published folder $($_.FullName) to $dest"; ^
-            Copy-Item -Path $_.FullName\* -Destination $dest -Recurse -Force ^
-          }; ^
+      - |
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "
+          $dist = Join-Path (Get-Location) 'dist';
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist;
+          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null;
+
+          # copy published outputs into dist\app
+          Get-ChildItem -Path $env:PUBLISH_DIR -Directory | ForEach-Object {
+            $dest = Join-Path (Join-Path $dist 'app') $_.Name;
+            Write-Host \"Copying published folder $($_.FullName) to $dest\";
+            Copy-Item -Path (Join-Path $_.FullName '*') -Destination $dest -Recurse -Force
+          }
+
           # copy appspec.yml and scripts
-          Copy-Item -Path 'appspec.yml' -Destination $dist -Force; ^
-          Copy-Item -Path 'scripts\*' -Destination (Join-Path $dist 'scripts') -Recurse -Force; ^
+          Copy-Item -Path 'appspec.yml' -Destination $dist -Force;
+          Copy-Item -Path 'scripts\*' -Destination (Join-Path $dist 'scripts') -Recurse -Force;
+
           # create artifact.zip
-          if (Test-Path artifact.zip) { Remove-Item artifact.zip -Force }; ^
-          Write-Host "Compressing dist into artifact.zip..."; ^
-          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath artifact.zip -Force; ^
-          Write-Host "artifact.zip created."
+          if (Test-Path artifact.zip) { Remove-Item artifact.zip -Force };
+          Write-Host 'Compressing dist into artifact.zip...';
+          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath artifact.zip -Force;
+          Write-Host 'artifact.zip created.';
+        "
+
 artifacts:
   files:
     - artifact.zip
