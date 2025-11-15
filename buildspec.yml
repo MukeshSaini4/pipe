@@ -22,22 +22,42 @@ phases:
       - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' build -c $env:CONFIGURATION --no-restore"
 
   post_build:
+    # This avoids using $_ or ForEach-Object so PowerShell tokens don't get mangled
+    # It copies the built output from the project's Release folder into output/app and creates artifact.zip
     commands:
       - powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
-          Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
-            $proj = $_.FullName;
-            if (Select-String -Path $proj -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
-              Write-Host 'Publishing' $proj;
-              $out = Join-Path $env:PUBLISH_DIR $_.BaseName;
-              & 'C:\dotnet\dotnet.exe' publish $proj -c $env:CONFIGURATION -o $out
-            }
-          };
+          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
+          if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null };
+
+          # Adjust this path if your project name or target framework changes
+          $builtPath = Join-Path (Get-Location) 'pipe\pipe\bin\Release\net8.0';
+          if (Test-Path $builtPath) {
+            $destApp = Join-Path $pubRoot 'app';
+            if (Test-Path $destApp) { Remove-Item -Recurse -Force $destApp -ErrorAction SilentlyContinue }
+            New-Item -ItemType Directory -Force -Path $destApp | Out-Null;
+            Copy-Item -Path (Join-Path $builtPath '*') -Destination $destApp -Recurse -Force;
+            Write-Host 'Copied build output from' $builtPath 'to' $destApp;
+          } else {
+            Write-Host 'Built path not found:' $builtPath;
+          }
+
+          # prepare dist/app and copy publish root into it
           $dist = Join-Path (Get-Location) 'dist';
           if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist }
           New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null;
-          if (Test-Path $env:PUBLISH_DIR) { Copy-Item -Path (Join-Path $env:PUBLISH_DIR '*') -Destination (Join-Path $dist 'app') -Recurse -Force; Write-Host 'Copied publish output to' (Join-Path $dist 'app') } else { Write-Host 'Publish root not found:' $env:PUBLISH_DIR };
-          if (Test-Path 'appspec.yml') { Copy-Item -Path 'appspec.yml' -Destination $dist -Force; Write-Host 'Copied appspec.yml to' $dist };
-          if (Test-Path 'scripts') { Copy-Item -Path 'scripts\\*' -Destination (Join-Path $dist 'scripts') -Recurse -Force; Write-Host 'Copied scripts to' (Join-Path $dist 'scripts') };
+
+          if (Test-Path $pubRoot) {
+            Copy-Item -Path (Join-Path $pubRoot '*') -Destination (Join-Path $dist 'app') -Recurse -Force;
+            Write-Host 'Copied publish output to' (Join-Path $dist 'app');
+          } else {
+            Write-Host 'Publish root not found:' $pubRoot;
+          }
+
+          # include appspec.yml and scripts if present
+          if (Test-Path 'appspec.yml') { Copy-Item -Path 'appspec.yml' -Destination $dist -Force; Write-Host 'Copied appspec.yml to' $dist }
+          if (Test-Path 'scripts') { Copy-Item -Path 'scripts\\*' -Destination (Join-Path $dist 'scripts') -Recurse -Force; Write-Host 'Copied scripts to' (Join-Path $dist 'scripts') }
+
+          # create artifact.zip at repo root
           if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force };
           Compress-Archive -Path (Join-Path $dist '*') -DestinationPath 'artifact.zip' -Force;
           Write-Host 'artifact.zip created.';
