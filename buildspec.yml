@@ -39,25 +39,25 @@ phases:
         "
 
       - Write-Host "Preparing CodeDeploy bundle (artifact.zip)..."
-      - |
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "
-          $dist = Join-Path (Get-Location) 'dist';
-          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist;
-          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null;
+- |
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "
+    $dist = Join-Path (Get-Location) 'dist';
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist;
+    New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null;
 
-          # copy publish output (all files/folders)
-          Copy-Item -Path (Join-Path $pubRoot '*') -Destination (Join-Path $dist 'app') -Recurse -Force;
+    # copy publish output (all files/folders)
+    Copy-Item -Path \"$pubRoot\\*\" -Destination \"$dist\\app\" -Recurse -Force;
 
-          # copy appspec.yml and scripts
-          Copy-Item -Path 'appspec.yml' -Destination $dist -Force;
-          Copy-Item -Path 'scripts' -Destination (Join-Path $dist 'scripts') -Recurse -Force;
+    # copy appspec.yml and scripts
+    Copy-Item -Path 'appspec.yml' -Destination $dist -Force;
+    Copy-Item -Path 'scripts\\*' -Destination \"$dist\\scripts\" -Recurse -Force;
 
-          # create artifact.zip
-          if (Test-Path artifact.zip) { Remove-Item artifact.zip -Force };
-          Write-Host 'Compressing dist into artifact.zip...';
-          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath artifact.zip -Force;
-          Write-Host 'artifact.zip created.';
-        "
+    # create artifact.zip
+    if (Test-Path artifact.zip) { Remove-Item artifact.zip -Force };
+    Write-Host 'Compressing dist into artifact.zip...';
+    Compress-Archive -Path \"$dist\\*\" -DestinationPath artifact.zip -Force;
+    Write-Host 'artifact.zip created.';
+  "
 
 artifacts:
   files:
