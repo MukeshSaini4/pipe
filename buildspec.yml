@@ -11,7 +11,6 @@ phases:
     commands:
       - powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
       - powershell -NoProfile -ExecutionPolicy Bypass -File .\dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PATH = 'C:\dotnet;' + $env:PATH"
       - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' --info"
 
   pre_build:
@@ -24,7 +23,25 @@ phases:
 
   post_build:
     commands:
-      - powershell -NoProfile -ExecutionPolicy Bypass -File build/publish.ps1
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
+          Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
+            $proj = $_.FullName;
+            if (Select-String -Path $proj -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
+              Write-Host 'Publishing' $proj;
+              $out = Join-Path $env:PUBLISH_DIR $_.BaseName;
+              & 'C:\dotnet\dotnet.exe' publish $proj -c $env:CONFIGURATION -o $out
+            }
+          };
+          $dist = Join-Path (Get-Location) 'dist';
+          if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist }
+          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null;
+          if (Test-Path $env:PUBLISH_DIR) { Copy-Item -Path (Join-Path $env:PUBLISH_DIR '*') -Destination (Join-Path $dist 'app') -Recurse -Force; Write-Host 'Copied publish output to' (Join-Path $dist 'app') } else { Write-Host 'Publish root not found:' $env:PUBLISH_DIR };
+          if (Test-Path 'appspec.yml') { Copy-Item -Path 'appspec.yml' -Destination $dist -Force; Write-Host 'Copied appspec.yml to' $dist };
+          if (Test-Path 'scripts') { Copy-Item -Path 'scripts\\*' -Destination (Join-Path $dist 'scripts') -Recurse -Force; Write-Host 'Copied scripts to' (Join-Path $dist 'scripts') };
+          if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force };
+          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath 'artifact.zip' -Force;
+          Write-Host 'artifact.zip created.';
+        }"
 
 artifacts:
   files:
