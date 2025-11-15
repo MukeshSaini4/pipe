@@ -10,77 +10,58 @@ phases:
   install:
     commands:
       - Write-Host "Downloading dotnet-install script..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
-          Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1
-      - Write-Host "Installing .NET $env:DOTNET_VERSION to C:\dotnet..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
-          Start-Process -FilePath 'powershell' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','.\dotnet-install.ps1','-Version',$env:DOTNET_VERSION,'-InstallDir','C:\dotnet' -Wait -NoNewWindow
-      - Write-Host "Adding C:\dotnet to PATH and showing dotnet info..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
-          $env:PATH = 'C:\dotnet;' + $env:PATH;
-          Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList '--info' -Wait -NoNewWindow
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
+      - Write-Host "Installing .NET SDK..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -File .\dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PATH = 'C:\dotnet;' + $env:PATH"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "C:\dotnet\dotnet.exe --info"
       - Write-Host "Restoring packages..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
-          Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList 'restore' -Wait -NoNewWindow
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "C:\dotnet\dotnet.exe restore"
 
   build:
     commands:
-      - Write-Host "Building project(s)..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
-          Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList 'build','-c',$env:CONFIGURATION,'--no-restore' -Wait -NoNewWindow
+      - Write-Host "Building project..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "C:\dotnet\dotnet.exe build -c $env:CONFIGURATION --no-restore"
 
   post_build:
     commands:
-      - Write-Host "Publishing web projects to $env:PUBLISH_DIR..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
-          $ErrorActionPreference = 'Stop';
-          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
-          if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null }
+      - Write-Host "Publishing project..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
+          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR
+          if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Path $pubRoot | Out-Null }
           Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
             if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
-              Write-Host "Publishing $($_.FullName)";
-              $args = @('publish', $_.FullName, '-c', $env:CONFIGURATION, '-o', $pubRoot);
-              Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList $args -Wait -NoNewWindow;
+              Write-Host 'Publishing' $_.FullName
+              C:\dotnet\dotnet.exe publish $_.FullName -c $env:CONFIGURATION -o $pubRoot
             }
           }
+        }"
+
       - Write-Host "Preparing CodeDeploy bundle (artifact.zip)..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
-          $ErrorActionPreference = 'Stop';
-          $dist = Join-Path (Get-Location) 'dist';
-          if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist }
-          # create dist and dist\app
-          New-Item -ItemType Directory -Force -Path ($dist + '\app') | Out-Null;
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
+          $dist = Join-Path (Get-Location) 'dist'
+          if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
+          New-Item -ItemType Directory -Path (Join-Path $dist 'app') | Out-Null
 
-          # copy published output from $pubRoot into dist\app (if exists)
-          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
-          if (Test-Path $pubRoot) {
-            Write-Host "Copying published output from $pubRoot to $($dist + '\app')";
-            Copy-Item -Path ($pubRoot + '\*') -Destination ($dist + '\app') -Recurse -Force;
-          } else {
-            Write-Host "Publish root not found: $pubRoot";
-          }
+          # copy publish output
+          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR
+          Copy-Item -Path (Join-Path $pubRoot '*') -Destination (Join-Path $dist 'app') -Recurse -Force
 
-          # copy appspec.yml if present
+          # copy appspec.yml
           if (Test-Path 'appspec.yml') {
-            Copy-Item -Path 'appspec.yml' -Destination $dist -Force;
-            Write-Host "Copied appspec.yml to $dist";
-          } else {
-            Write-Host "appspec.yml not found in repo root";
+            Copy-Item 'appspec.yml' -Destination $dist -Force
           }
 
-          # copy scripts folder if present
+          # copy scripts
           if (Test-Path 'scripts') {
-            Copy-Item -Path 'scripts\*' -Destination ($dist + '\scripts') -Recurse -Force;
-            Write-Host "Copied scripts to $($dist + '\scripts')";
-          } else {
-            Write-Host "scripts folder not found in repo root";
+            New-Item -ItemType Directory -Path (Join-Path $dist 'scripts') -Force | Out-Null
+            Copy-Item 'scripts\*' -Destination (Join-Path $dist 'scripts') -Recurse -Force
           }
 
-          # create artifact.zip at repo root
-          if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force };
-          Write-Host "Compressing $dist\* into artifact.zip...";
-          Compress-Archive -Path ($dist + '\*') -DestinationPath 'artifact.zip' -Force;
-          Write-Host "artifact.zip created.";
+          # create artifact.zip
+          if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force }
+          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath 'artifact.zip' -Force
+        }"
 
 artifacts:
   files:
