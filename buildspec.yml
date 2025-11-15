@@ -10,7 +10,7 @@ phases:
   install:
     commands:
       - Write-Host "Downloading dotnet-install script..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
       - Write-Host "Installing .NET $env:DOTNET_VERSION to C:\dotnet..."
       - powershell -NoProfile -ExecutionPolicy Bypass -File .\dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet
       - powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PATH = 'C:\dotnet;' + $env:PATH; & 'C:\dotnet\dotnet.exe' --info"
@@ -25,60 +25,29 @@ phases:
   post_build:
     commands:
       - Write-Host "Publishing web projects to $env:PUBLISH_DIR..."
-      - |
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "
-          # ensure publish root exists
-          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
-          if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null }
-
-          # publish every web SDK project to the same publish root
-          Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
-            if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
-              Write-Host 'Publishing' $_.FullName;
-              & 'C:\dotnet\dotnet.exe' publish $_.FullName -c $env:CONFIGURATION -o $pubRoot
-            }
-          }
-        "
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+          "$pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR; ^
+           if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null }; ^
+           Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object { ^
+             if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) { ^
+               Write-Host 'Publishing' $_.FullName; ^
+               & 'C:\dotnet\dotnet.exe' publish $_.FullName -c $env:CONFIGURATION -o $pubRoot ^
+             } ^
+           }"
 
       - Write-Host "Preparing CodeDeploy bundle (artifact.zip)..."
-      - |
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "
-          # prepare dist folder and app subfolder
-          $dist = (Join-Path (Get-Location) 'dist');
-          if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist }
-          New-Item -ItemType Directory -Force -Path ($dist + '\app') | Out-Null;
-
-          # copy published output (all files/folders) from publish root into dist\app
-          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
-          if (Test-Path $pubRoot) {
-            Copy-Item -Path ($pubRoot + '\*') -Destination ($dist + '\app') -Recurse -Force;
-            Write-Host 'Copied publish output from' $pubRoot 'to' ($dist + '\app');
-          } else {
-            Write-Host 'Publish root not found:' $pubRoot;
-          }
-
-          # copy appspec.yml if it exists
-          if (Test-Path 'appspec.yml') {
-            Copy-Item -Path 'appspec.yml' -Destination $dist -Force;
-            Write-Host 'Copied appspec.yml to' $dist;
-          } else {
-            Write-Host 'appspec.yml not found in repo root';
-          }
-
-          # copy scripts folder if it exists
-          if (Test-Path 'scripts') {
-            Copy-Item -Path 'scripts\*' -Destination ($dist + '\scripts') -Recurse -Force;
-            Write-Host 'Copied scripts to' ($dist + '\scripts');
-          } else {
-            Write-Host 'scripts folder not found in repo root';
-          }
-
-          # create artifact.zip at repo root containing contents of dist
-          if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force };
-          Write-Host 'Compressing' $dist '\* into artifact.zip...';
-          Compress-Archive -Path ($dist + '\*') -DestinationPath 'artifact.zip' -Force;
-          Write-Host 'artifact.zip created.';
-        "
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+          "$dist = (Get-Location).Path + '\dist'; ^
+           if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist }; ^
+           New-Item -ItemType Directory -Force -Path ($dist + '\app') | Out-Null; ^
+           $pubRoot = (Get-Location).Path + '\' + $env:PUBLISH_DIR; ^
+           if (Test-Path $pubRoot) { Copy-Item -Path ($pubRoot + '\*') -Destination ($dist + '\app') -Recurse -Force; Write-Host 'Copied publish output from' $pubRoot } else { Write-Host 'Publish root not found:' $pubRoot }; ^
+           if (Test-Path 'appspec.yml') { Copy-Item -Path 'appspec.yml' -Destination $dist -Force; Write-Host 'Copied appspec.yml' } else { Write-Host 'appspec.yml not found in repo root' }; ^
+           if (Test-Path 'scripts') { Copy-Item -Path 'scripts\*' -Destination ($dist + '\scripts') -Recurse -Force; Write-Host 'Copied scripts' } else { Write-Host 'scripts folder not found in repo root' }; ^
+           if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force }; ^
+           Write-Host 'Compressing' $dist '\* into artifact.zip...'; ^
+           Compress-Archive -Path ($dist + '\*') -DestinationPath 'artifact.zip' -Force; ^
+           Write-Host 'artifact.zip created.'"
 
 artifacts:
   files:
