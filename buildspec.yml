@@ -9,62 +9,59 @@ env:
 phases:
   install:
     commands:
-      - echo "Downloading dotnet-install script..."
-      - powershell -Command "Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
-      - echo "Installing .NET SDK..."
-      - powershell -File ./dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet
-      - powershell -Command "$env:PATH = 'C:\dotnet;' + $env:PATH"
-      - powershell -Command "C:\dotnet\dotnet.exe --info"
-      - echo "Restoring packages..."
-      - powershell -Command "C:\dotnet\dotnet.exe restore"
+      - echo "=== Downloading dotnet-install script ==="
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
+
+      - echo "=== Installing .NET SDK $env:DOTNET_VERSION ==="
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command ".\dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet"
+
+      - echo "=== Updating PATH ==="
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PATH = 'C:\dotnet;' + $env:PATH"
+
+      - echo "=== .NET Info ==="
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "C:\dotnet\dotnet.exe --info"
+
+      - echo "=== Restoring NuGet packages ==="
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "C:\dotnet\dotnet.exe restore"
 
   build:
     commands:
-      - echo "Building..."
-      - powershell -Command "C:\dotnet\dotnet.exe build -c $env:CONFIGURATION --no-restore"
+      - echo "=== Building Project(s) ==="
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "C:\dotnet\dotnet.exe build -c $env:CONFIGURATION --no-restore"
 
   post_build:
     commands:
-      - echo "Publishing output..."
-      - powershell -Command "
-          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
-          New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null;
-          Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
-            if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
-              Write-Host 'Publishing' $_.FullName;
-              & 'C:\dotnet\dotnet.exe' publish $_.FullName -c $env:CONFIGURATION -o (Join-Path $pubRoot $_.BaseName);
-            }
-          }
-        "
+      - echo "=== Publishing Web Projects ==="
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+          "$pub = Join-Path (Get-Location) $env:PUBLISH_DIR; ^
+           New-Item -ItemType Directory -Force -Path $pub | Out-Null; ^
+           Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object { ^
+             if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) { ^
+               Write-Host 'Publishing' $_.FullName; ^
+               & 'C:\dotnet\dotnet.exe' publish $_.FullName -c $env:CONFIGURATION -o (Join-Path $pub $_.BaseName); ^
+             } ^
+           }"
 
-      - echo "Preparing dist folder..."
-      - powershell -Command "
-          $dist = Join-Path (Get-Location) 'dist';
-          if (Test-Path $dist) { Remove-Item $dist -Recurse -Force };
-          New-Item -ItemType Directory -Force -Path $dist | Out-Null;
-          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null;
-        "
-
-      - echo "Copying published output to dist/app..."
-      - powershell -Command "
-          Get-ChildItem -Path $env:PUBLISH_DIR -Directory | ForEach-Object {
-            $dest = Join-Path (Join-Path $dist 'app') $_.Name;
-            Write-Host 'Copying' $_.FullName 'to' $dest;
-            Copy-Item $_.FullName -Destination $dest -Recurse -Force;
-          }
-        "
-
-      - echo "Copying appspec.yml and scripts..."
-      - powershell -Command "
-          Copy-Item -Path 'appspec.yml' -Destination $dist -Force;
-          Copy-Item -Path 'scripts' -Destination (Join-Path $dist 'scripts') -Recurse -Force;
-        "
-
-      - echo "Creating artifact.zip..."
-      - powershell -Command "
-          if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force };
-          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath artifact.zip -Force;
-        "
+      - echo "=== Preparing CodeDeploy artifact.zip ==="
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+          "$dist = Join-Path (Get-Location) 'dist'; ^
+           Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist; ^
+           New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null; ^
+           # copy published output
+           Get-ChildItem -Path $env:PUBLISH_DIR -Directory | ForEach-Object { ^
+             $dest = Join-Path (Join-Path $dist 'app') $_.Name; ^
+             Write-Host 'Copying folder' $_.FullName 'to' $dest; ^
+             Copy-Item -Path $_.FullName\* -Destination $dest -Recurse -Force; ^
+           }; ^
+           # copy appspec.yml
+           Copy-Item -Path 'appspec.yml' -Destination $dist -Force; ^
+           # copy scripts folder
+           New-Item -ItemType Directory -Force -Path (Join-Path $dist 'scripts') | Out-Null; ^
+           Copy-Item -Path 'scripts\*' -Destination (Join-Path $dist 'scripts') -Recurse -Force; ^
+           # create artifact.zip
+           if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force }; ^
+           Compress-Archive -Path (Join-Path $dist '*') -DestinationPath 'artifact.zip' -Force; ^
+           Write-Host 'artifact.zip created.'"
 
 artifacts:
   files:
