@@ -13,7 +13,6 @@ phases:
       - powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
       - Write-Host "Installing .NET $env:DOTNET_VERSION to C:\dotnet..."
       - powershell -NoProfile -ExecutionPolicy Bypass -File .\dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet
-      - Write-Host "Adding C:\dotnet to PATH and showing dotnet --info"
       - powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PATH = 'C:\dotnet;' + $env:PATH; & 'C:\dotnet\dotnet.exe' --info"
       - Write-Host "Restoring packages..."
       - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' restore"
@@ -25,74 +24,49 @@ phases:
 
   post_build:
     commands:
-      - Write-Host "Publishing web projects to $env:PUBLISH_DIR..."
+      - Write-Host "Publishing web projects and preparing CodeDeploy bundle..."
       - |
         powershell -NoProfile -ExecutionPolicy Bypass -Command "
-          # define publish root and dist
+          # Prepare publish folder
           $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
-          if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null }
+          New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null;
 
-          Write-Host 'Publishing detected web projects to:' $pubRoot
-
-          # Find web projects and publish them to $pubRoot
+          # Publish all web projects to $pubRoot
           Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
-            try {
-              if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
-                Write-Host 'Publishing' $_.FullName;
-                & 'C:\dotnet\dotnet.exe' publish $_.FullName -c $env:CONFIGURATION -o $pubRoot
-              }
-            } catch {
-              Write-Host 'Publish error for' $_.FullName $_.Exception.Message
+            if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
+              Write-Host 'Publishing' $_.FullName;
+              & 'C:\dotnet\dotnet.exe' publish $_.FullName -c $env:CONFIGURATION -o (Join-Path $pubRoot $_.BaseName)
             }
           }
 
-          Write-Host 'Publish phase complete.'
-        "
-
-      - Write-Host "Preparing CodeDeploy bundle (artifact.zip)..."
-      - |
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "
-          # set variables
-          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
+          # Prepare dist directory structure (dist\app and dist\scripts)
           $dist = Join-Path (Get-Location) 'dist';
-          $appFolder = Join-Path $dist 'app';
-          $scriptsDest = Join-Path $dist 'scripts';
+          if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist; }
+          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null;
 
-          # cleanup previous dist
-          if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist }
-          New-Item -ItemType Directory -Force -Path $appFolder | Out-Null;
+          # Copy published output (everything under $pubRoot) into dist\app
+          Copy-Item -Path (Join-Path $pubRoot '*') -Destination (Join-Path $dist 'app') -Recurse -Force;
 
-          Write-Host 'Copying publish output from' $pubRoot 'to' $appFolder
-
-          # copy all published output into dist\app
-          if (Test-Path $pubRoot) {
-            Copy-Item -Path (Join-Path $pubRoot '*') -Destination $appFolder -Recurse -Force -ErrorAction Stop;
-          } else {
-            Write-Host 'Warning: publish directory not found:' $pubRoot;
-          }
-
-          # copy appspec.yml if present
+          # Copy appspec.yml (if it exists)
           if (Test-Path 'appspec.yml') {
             Copy-Item -Path 'appspec.yml' -Destination $dist -Force;
           } else {
-            Write-Host 'Warning: appspec.yml not found in repo root.'
+            Write-Host 'Warning: appspec.yml not found in repo root.';
           }
 
-          # copy scripts folder if present
+          # Copy scripts folder (if it exists)
           if (Test-Path 'scripts') {
-            New-Item -ItemType Directory -Force -Path $scriptsDest | Out-Null;
-            Copy-Item -Path (Join-Path 'scripts' '*') -Destination $scriptsDest -Recurse -Force;
+            New-Item -ItemType Directory -Force -Path (Join-Path $dist 'scripts') | Out-Null;
+            Copy-Item -Path (Join-Path 'scripts' '*') -Destination (Join-Path $dist 'scripts') -Recurse -Force;
           } else {
-            Write-Host 'Warning: scripts folder not found in repo root.'
+            Write-Host 'Warning: scripts folder not found in repo root.';
           }
 
-          # ensure artifact.zip does not exist
-          if (Test-Path artifact.zip) { Remove-Item artifact.zip -Force }
-
-          Write-Host 'Compressing dist into artifact.zip...'
-          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath artifact.zip -Force
-
-          Write-Host 'artifact.zip created.'
+          # Create artifact.zip at repo root
+          if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force };
+          Write-Host 'Compressing dist into artifact.zip...';
+          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath 'artifact.zip' -Force;
+          Write-Host 'artifact.zip created.';
         "
 
 artifacts:
