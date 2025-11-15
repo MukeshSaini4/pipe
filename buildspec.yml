@@ -10,37 +10,78 @@ phases:
   install:
     commands:
       - Write-Host "Downloading dotnet-install script..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
+          Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1
       - Write-Host "Installing .NET $env:DOTNET_VERSION to C:\dotnet..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -File .\dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet
-      - Write-Host "Showing dotnet info..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList '--info' -Wait"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
+          Start-Process -FilePath 'powershell' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','.\dotnet-install.ps1','-Version',$env:DOTNET_VERSION,'-InstallDir','C:\dotnet' -Wait -NoNewWindow
+      - Write-Host "Adding C:\dotnet to PATH and showing dotnet info..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
+          $env:PATH = 'C:\dotnet;' + $env:PATH;
+          Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList '--info' -Wait -NoNewWindow
+      - Write-Host "Restoring packages..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
+          Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList 'restore' -Wait -NoNewWindow
 
   build:
     commands:
-      - Write-Host "Restoring packages (using pipe.csproj)..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList 'restore', '.\pipe.csproj' -Wait"
-      - Write-Host "Building project (pipe.csproj)..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList 'build', '.\pipe.csproj', '-c', '$env:CONFIGURATION', '--no-restore' -Wait"
+      - Write-Host "Building project(s)..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
+          Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList 'build','-c',$env:CONFIGURATION,'--no-restore' -Wait -NoNewWindow
 
   post_build:
     commands:
-      - Write-Host "Publishing project to $env:PUBLISH_DIR..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList 'publish', '.\pipe.csproj', '-c', '$env:CONFIGURATION', '-o', '.\\$env:PUBLISH_DIR' -Wait"
+      - Write-Host "Publishing web projects to $env:PUBLISH_DIR..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
+          $ErrorActionPreference = 'Stop';
+          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
+          if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null }
+          Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
+            if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
+              Write-Host "Publishing $($_.FullName)";
+              $args = @('publish', $_.FullName, '-c', $env:CONFIGURATION, '-o', $pubRoot);
+              Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList $args -Wait -NoNewWindow;
+            }
+          }
       - Write-Host "Preparing CodeDeploy bundle (artifact.zip)..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "`
-          $root = (Get-Location).Path; `
-          $pub = Join-Path $root '$env:PUBLISH_DIR'; `
-          $dist = Join-Path $root 'dist'; `
-          if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist }; `
-          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null; `
-          if (Test-Path $pub) { Copy-Item -Path (Join-Path $pub '*') -Destination (Join-Path $dist 'app') -Recurse -Force; Write-Host 'Copied publish output from' $pub 'to' (Join-Path $dist 'app') } else { Write-Host 'Publish root not found:' $pub }; `
-          if (Test-Path 'appspec.yml') { Copy-Item -Path 'appspec.yml' -Destination $dist -Force; Write-Host 'Copied appspec.yml to' $dist } else { Write-Host 'appspec.yml not found in repo root' }; `
-          if (Test-Path 'scripts') { Copy-Item -Path 'scripts\\*' -Destination (Join-Path $dist 'scripts') -Recurse -Force; Write-Host 'Copied scripts to' (Join-Path $dist 'scripts') } else { Write-Host 'scripts folder not found in repo root' }; `
-          if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force }; `
-          Write-Host 'Compressing' $dist '\* into artifact.zip...'; `
-          Compress-Archive -Path (Join-Path $dist '*') -DestinationPath (Join-Path $root 'artifact.zip') -Force; `
-          Write-Host 'artifact.zip created at' (Join-Path $root 'artifact.zip');"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
+          $ErrorActionPreference = 'Stop';
+          $dist = Join-Path (Get-Location) 'dist';
+          if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist }
+          # create dist and dist\app
+          New-Item -ItemType Directory -Force -Path ($dist + '\app') | Out-Null;
+
+          # copy published output from $pubRoot into dist\app (if exists)
+          $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
+          if (Test-Path $pubRoot) {
+            Write-Host "Copying published output from $pubRoot to $($dist + '\app')";
+            Copy-Item -Path ($pubRoot + '\*') -Destination ($dist + '\app') -Recurse -Force;
+          } else {
+            Write-Host "Publish root not found: $pubRoot";
+          }
+
+          # copy appspec.yml if present
+          if (Test-Path 'appspec.yml') {
+            Copy-Item -Path 'appspec.yml' -Destination $dist -Force;
+            Write-Host "Copied appspec.yml to $dist";
+          } else {
+            Write-Host "appspec.yml not found in repo root";
+          }
+
+          # copy scripts folder if present
+          if (Test-Path 'scripts') {
+            Copy-Item -Path 'scripts\*' -Destination ($dist + '\scripts') -Recurse -Force;
+            Write-Host "Copied scripts to $($dist + '\scripts')";
+          } else {
+            Write-Host "scripts folder not found in repo root";
+          }
+
+          # create artifact.zip at repo root
+          if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force };
+          Write-Host "Compressing $dist\* into artifact.zip...";
+          Compress-Archive -Path ($dist + '\*') -DestinationPath 'artifact.zip' -Force;
+          Write-Host "artifact.zip created.";
+
 artifacts:
   files:
     - artifact.zip
