@@ -23,41 +23,27 @@ phases:
 
   post_build:
     commands:
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
-          # 1) copy the compiled output (adjust path only if your project layout changes)
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& { 
           $builtPath = Join-Path (Get-Location) 'pipe\\pipe\\bin\\Release\\net8.0';
           $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
           if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null }
           if (Test-Path $builtPath) {
-            $destApp = Join-Path $pubRoot 'app';
-            if (Test-Path $destApp) { Remove-Item -Recurse -Force $destApp -ErrorAction SilentlyContinue }
-            New-Item -ItemType Directory -Force -Path $destApp | Out-Null;
-            Copy-Item -Path (Join-Path $builtPath '*') -Destination $destApp -Recurse -Force;
-            Write-Host 'Copied build output from' $builtPath 'to' $destApp;
+            if (Test-Path (Join-Path $pubRoot 'app')) { Remove-Item -Recurse -Force (Join-Path $pubRoot 'app') -ErrorAction SilentlyContinue }
+            New-Item -ItemType Directory -Force -Path (Join-Path $pubRoot 'app') | Out-Null
+            Copy-Item -Path (Join-Path $builtPath '*') -Destination (Join-Path $pubRoot 'app') -Recurse -Force
+            Write-Host 'Copied build output from' $builtPath 'to' (Join-Path $pubRoot 'app')
           } else {
-            Write-Host 'Built path not found:' $builtPath;
+            Write-Host 'Built path not found:' $builtPath
           }
-
-          # 2) prepare dist/app
           $dist = Join-Path (Get-Location) 'dist';
-          if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist }
-          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null;
-
-          if (Test-Path $pubRoot) {
-            Copy-Item -Path (Join-Path $pubRoot '*') -Destination (Join-Path $dist 'app') -Recurse -Force;
-            Write-Host 'Copied publish output to' (Join-Path $dist 'app');
-          } else {
-            Write-Host 'Publish root not found:' $pubRoot;
-          }
-
-          # 3) include appspec.yml and scripts if present
+          if (Test-Path $dist) { Remove-Item -Recurse -Force $dist -ErrorAction SilentlyContinue }
+          New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null
+          if (Test-Path $pubRoot) { Copy-Item -Path (Join-Path $pubRoot '*') -Destination (Join-Path $dist 'app') -Recurse -Force; Write-Host 'Copied publish output to' (Join-Path $dist 'app') } else { Write-Host 'Publish root not found:' $pubRoot }
           if (Test-Path 'appspec.yml') { Copy-Item -Path 'appspec.yml' -Destination $dist -Force; Write-Host 'Copied appspec.yml to' $dist }
           if (Test-Path 'scripts') { Copy-Item -Path 'scripts\\*' -Destination (Join-Path $dist 'scripts') -Recurse -Force; Write-Host 'Copied scripts to' (Join-Path $dist 'scripts') }
-
-          # 4) create artifact.zip from dist\\app\\*
-          if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force };
-          Compress-Archive -Path (Join-Path $dist 'app\\*') -DestinationPath 'artifact.zip' -Force;
-          Write-Host 'artifact.zip created at' (Join-Path (Get-Location) 'artifact.zip');
+          if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force }
+          Compress-Archive -Path (Join-Path $dist 'app\\*') -DestinationPath 'artifact.zip' -Force
+          Write-Host 'artifact.zip created at' (Join-Path (Get-Location) 'artifact.zip')
         }"
 
 artifacts:
