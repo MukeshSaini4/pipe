@@ -14,28 +14,35 @@ phases:
       - Write-Host "Installing .NET $env:DOTNET_VERSION to C:\dotnet..."
       - powershell -NoProfile -ExecutionPolicy Bypass -File .\dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet
       - Write-Host "Adding C:\dotnet to PATH and showing dotnet --info..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command " $env:PATH = 'C:\dotnet;' + $env:PATH; Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList '--info' -NoNewWindow -Wait"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PATH = 'C:\dotnet;' + $env:PATH; & 'C:\dotnet\dotnet.exe' --info"
+
+  pre_build:
+    commands:
       - Write-Host "Restoring packages..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList 'restore' -NoNewWindow -Wait"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' restore"
 
   build:
     commands:
       - Write-Host "Building project(s)..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList @('build','-c',$env:CONFIGURATION,'--no-restore') -NoNewWindow -Wait"
+      # Use call operator (&) to avoid Start-Process quoting issues
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' build -c $env:CONFIGURATION --no-restore"
 
   post_build:
     commands:
       - Write-Host "Publishing web projects to $env:PUBLISH_DIR and preparing artifact..."
-      - |
-        powershell -NoProfile -ExecutionPolicy Bypass -Command "
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "
           try {
             $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
             if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null };
+
+            # Find projects that are web sdk and publish them
             Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
-              if (Select-String -Path $_.FullName -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
-                Write-Host 'Publishing' $_.FullName;
+              $projPath = $_.FullName
+              if (Select-String -Path $projPath -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
+                Write-Host 'Publishing' $projPath;
                 $outDir = Join-Path $pubRoot ($_.BaseName);
-                Start-Process -FilePath 'C:\dotnet\dotnet.exe' -ArgumentList @('publish', $_.FullName, '-c', $env:CONFIGURATION, '-o', $outDir) -NoNewWindow -Wait
+                # direct call avoids Start-Process/argumentlist quoting bugs
+                & 'C:\dotnet\dotnet.exe' publish $projPath -c $env:CONFIGURATION -o $outDir
               }
             }
 
