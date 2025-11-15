@@ -1,37 +1,10 @@
-# FILE: buildspec.yml
 version: 0.2
 
-
-env:
-variables:
-CONFIGURATION: "Release"
-PUBLISH_DIR: "output"
-DOTNET_VERSION: "8.0.405"
-
-
 phases:
-install:
-commands:
-- powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
-- powershell -NoProfile -ExecutionPolicy Bypass -File .\dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet
-- powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' --info"
-
-
-pre_build:
-commands:
-- powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' restore"
-
-
-build:
-commands:
-- powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' build -c $env:CONFIGURATION --no-restore"
-
-
-post_build:
-commands:
-- powershell -NoProfile -ExecutionPolicy Bypass -File build\publish.ps1
-
+  install:
+    commands:
+      - powershell -NoProfile -ExecutionPolicy Bypass -File build\publish.ps1
 
 artifacts:
-files:
-- artifact.zip
+  files:
+    - artifact.zip
