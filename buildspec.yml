@@ -22,13 +22,23 @@ phases:
       - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' build -c $env:CONFIGURATION --no-restore"
 
   post_build:
-    # Keep each command as a single YAML list item. Avoid $vars and multi-line scripts.
     commands:
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "if (-not (Test-Path 'output\\app')) { New-Item -ItemType Directory -Path 'output\\app' | Out-Null }"
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Path 'pipe\\pipe\\bin\\Release\\net8.0\\*' -Destination 'output\\app' -Recurse -Force"
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path 'dist') { Remove-Item -Recurse -Force 'dist' -ErrorAction SilentlyContinue }; New-Item -ItemType Directory -Path 'dist\\app' | Out-Null"
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item -Path 'output\\*' -Destination 'dist\\app' -Recurse -Force"
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force }; Compress-Archive -Path 'dist\\app\\*' -DestinationPath 'artifact.zip' -Force; Write-Host 'artifact.zip created.'"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command '
+          $dll = Get-ChildItem -Path . -Recurse -Filter "*.dll" -File | Where-Object { $_.FullName -match "\\\\bin\\\\Release\\\\" } | Select-Object -First 1;
+          if ($null -eq $dll) { Write-Host "ERROR: no built dll found under any bin\\Release folder"; exit 1 }
+          $builtDir = Split-Path $dll.FullName -Parent;
+          Write-Host "Found build directory: $builtDir";
+          $dest = "output\\app";
+          if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Path $dest | Out-Null }
+          Copy-Item -Path (Join-Path $builtDir "*") -Destination $dest -Recurse -Force;
+          $dist = "dist";
+          if (Test-Path $dist) { Remove-Item -Recurse -Force $dist -ErrorAction SilentlyContinue }
+          New-Item -ItemType Directory -Path (Join-Path $dist "app") | Out-Null;
+          Copy-Item -Path (Join-Path $dest "*") -Destination (Join-Path $dist "app") -Recurse -Force;
+          if (Test-Path "artifact.zip") { Remove-Item "artifact.zip" -Force };
+          Compress-Archive -Path (Join-Path $dist "app\\*") -DestinationPath "artifact.zip" -Force;
+          Write-Host "artifact.zip created at" (Join-Path (Get-Location) "artifact.zip");
+        '
 
 artifacts:
   files:
