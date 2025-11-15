@@ -29,7 +29,7 @@ phases:
   post_build:
     commands:
       - Write-Host "Publishing web projects to $env:PUBLISH_DIR and preparing artifact..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command: |
           try {
             $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
             if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null };
