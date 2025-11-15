@@ -24,34 +24,29 @@ phases:
   build:
     commands:
       - Write-Host "Building project(s)..."
-      # Use call operator (&) to avoid Start-Process quoting issues
       - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' build -c $env:CONFIGURATION --no-restore"
 
   post_build:
     commands:
       - Write-Host "Publishing web projects to $env:PUBLISH_DIR and preparing artifact..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command |
           try {
             $pubRoot = Join-Path (Get-Location) $env:PUBLISH_DIR;
             if (-not (Test-Path $pubRoot)) { New-Item -ItemType Directory -Force -Path $pubRoot | Out-Null };
 
-            # Find projects that are web sdk and publish them
             Get-ChildItem -Recurse -Filter *.csproj | ForEach-Object {
               $projPath = $_.FullName
               if (Select-String -Path $projPath -Pattern 'Microsoft.NET.Sdk.Web' -Quiet) {
                 Write-Host 'Publishing' $projPath;
                 $outDir = Join-Path $pubRoot ($_.BaseName);
-                # direct call avoids Start-Process/argumentlist quoting bugs
                 & 'C:\dotnet\dotnet.exe' publish $projPath -c $env:CONFIGURATION -o $outDir
               }
             }
 
-            # prepare dist folder and app subfolder
             $dist = Join-Path (Get-Location) 'dist';
             if (Test-Path $dist) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $dist }
             New-Item -ItemType Directory -Force -Path (Join-Path $dist 'app') | Out-Null;
 
-            # copy published output (all files/folders) from publish root into dist\app
             if (Test-Path $pubRoot) {
               Copy-Item -Path (Join-Path $pubRoot '*') -Destination (Join-Path $dist 'app') -Recurse -Force;
               Write-Host 'Copied publish output from' $pubRoot 'to' (Join-Path $dist 'app');
@@ -59,7 +54,6 @@ phases:
               Write-Host 'Publish root not found:' $pubRoot;
             }
 
-            # copy appspec.yml if it exists
             if (Test-Path 'appspec.yml') {
               Copy-Item -Path 'appspec.yml' -Destination $dist -Force;
               Write-Host 'Copied appspec.yml to' $dist;
@@ -67,7 +61,6 @@ phases:
               Write-Host 'appspec.yml not found in repo root';
             }
 
-            # copy scripts folder if it exists
             if (Test-Path 'scripts') {
               Copy-Item -Path 'scripts\\*' -Destination (Join-Path $dist 'scripts') -Recurse -Force;
               Write-Host 'Copied scripts to' (Join-Path $dist 'scripts');
@@ -75,7 +68,6 @@ phases:
               Write-Host 'scripts folder not found in repo root';
             }
 
-            # create artifact.zip at repo root containing contents of dist
             if (Test-Path 'artifact.zip') { Remove-Item 'artifact.zip' -Force };
             Write-Host 'Compressing dist into artifact.zip...';
             Compress-Archive -Path (Join-Path $dist '*') -DestinationPath 'artifact.zip' -Force;
@@ -85,7 +77,6 @@ phases:
             Write-Host 'ERROR preparing artifact:' $_.Exception.Message
             exit 1
           }
-        "
 
 artifacts:
   files:
