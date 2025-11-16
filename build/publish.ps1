@@ -1,9 +1,10 @@
 <#
-  publish.ps1
+  publish.ps1 (updated)
   - Finds the ASP.NET Core web project (Microsoft.NET.Sdk.Web) or first csproj
   - Publishes it into a staging folder
   - Prepares dist\app with published files + appspec.yml + scripts
-  - Creates artifact.zip at repo root (contains contents of dist\app)
+  - Removes any .zip files in publish output to avoid nested zips
+  - Creates artifact.zip at repo root (contains contents of dist: app/, appspec.yml, scripts/)
   - Safe / idempotent (removes old folders)
 #>
 
@@ -86,8 +87,16 @@ Write-Host "  output -> $outDir"
 
 Write-Host "dotnet publish completed. Published files count: " (Get-ChildItem -Recurse -Path $outDir | Measure-Object).Count
 
+# remove any .zip files from publish output to avoid nested zips
+Write-Host "Removing any .zip files from publish output (to avoid nested zips)..."
+Get-ChildItem -Path $outDir -Filter *.zip -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+  Write-Host "  Removing zip: $($_.FullName)"
+  Remove-Item -Force -Path $_.FullName -ErrorAction SilentlyContinue
+}
+
 # Prepare dist/app for artifact (CodeDeploy expects artifact root with appspec.yml & scripts)
-$distApp = Join-Path (Get-Location) "dist\app"
+$distRoot = Join-Path (Get-Location) "dist"
+$distApp = Join-Path $distRoot "app"
 New-Item -ItemType Directory -Force -Path $distApp | Out-Null
 
 # copy published output into dist\app
@@ -97,22 +106,32 @@ Copy-Item -Path (Join-Path $outDir '*') -Destination $distApp -Recurse -Force
 # Include appspec.yml (if present) into dist root (not dist\app)
 if (Test-Path "appspec.yml") {
   Write-Host "Copying appspec.yml to dist"
-  Copy-Item -Path "appspec.yml" -Destination (Join-Path (Get-Location) "dist") -Force
+  Copy-Item -Path "appspec.yml" -Destination $distRoot -Force
 } else {
   Write-Host "No appspec.yml found in repo root. Make sure you have one for CodeDeploy."
 }
 
 # Include scripts folder under dist/scripts (if present)
+# Use Copy-Item to copy the folder itself so dist\scripts\... will exist
 if (Test-Path "scripts") {
-  Write-Host "Copying scripts folder to dist/scripts"
-  Copy-Item -Path "scripts\*" -Destination (Join-Path (Get-Location) "dist\scripts") -Recurse -Force
+  Write-Host "Copying entire 'scripts' folder to dist (preserve folder name)..."
+  $destScripts = Join-Path $distRoot "scripts"
+  # Remove if exists to ensure clean copy
+  if (Test-Path $destScripts) { Remove-Item -Recurse -Force $destScripts -ErrorAction SilentlyContinue }
+  Copy-Item -Path (Join-Path (Get-Location) "scripts") -Destination $distRoot -Recurse -Force
+  Write-Host "Scripts copied to $destScripts"
 } else {
   Write-Host "No scripts folder found in repo root. (That's OK if you don't use lifecycle scripts.)"
 }
 
-# create artifact.zip containing contents of dist (apps + appspec + scripts)
-Write-Host "Creating artifact.zip from dist..."
-Compress-Archive -Path (Join-Path (Get-Location) "dist\*") -DestinationPath (Join-Path (Get-Location) "artifact.zip") -Force
+# sanity: list dist contents for debug
+Write-Host "Dist tree (for debug):"
+Get-ChildItem -Path $distRoot -Force | ForEach-Object { Write-Host " - $($_.Name) (Type: $($_.PSIsContainer))" }
+
+# create artifact.zip containing contents of dist (not the dist folder itself)
+Write-Host "Creating artifact.zip from contents of dist (root entries: app, appspec.yml, scripts if present)..."
+Compress-Archive -Path (Join-Path $distRoot '*') -DestinationPath (Join-Path (Get-Location) "artifact.zip") -Force
+
 Write-Host "artifact.zip created: $(Get-Item artifact.zip).FullName"
 
 Write-Host "---- publish.ps1 finished successfully ----"
