@@ -2,21 +2,21 @@ version: 0.0
 os: windows
 
 files:
-  - source: \app\
-    destination: C:\inetpub\wwwroot\
+  - source: app/
+    destination: C:\inetpub\wwwroot
 
 hooks:
   BeforeInstall:
-    - location: scripts\BeforeInstall.ps1
+    - location: scripts/BeforeInstall.ps1
       timeout: 300
       runas: Administrator
 
   AfterInstall:
-    - location: scripts\AfterInstall.ps1
+    - location: scripts/AfterInstall.ps1
       timeout: 300
       runas: Administrator
 
   ApplicationStart:
-    - location: scripts\ApplicationStart.ps1
+    - location: scripts/ApplicationStart.ps1
       timeout: 300
       runas: Administrator
