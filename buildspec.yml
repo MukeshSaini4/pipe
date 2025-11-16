@@ -1,10 +1,54 @@
 version: 0.2
 
+env:
+  variables:
+    DOTNET_VERSION: "8.0.405"
+    CONFIGURATION: "Release"
+    PUBLISH_DIR: "output"    # used if you prefer an extra folder; not required
 phases:
   install:
+    runtime-versions:
+      dotnet: latest
     commands:
-      - powershell -NoProfile -ExecutionPolicy Bypass -File build\publish.ps1
+      - Write-Host "Downloading dotnet-install script..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
+      - powershell -NoProfile -ExecutionPolicy Bypass -File .\dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet
+      - Write-Host "Dotnet installed. Showing dotnet --info"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' --info"
+
+  pre_build:
+    commands:
+      - Write-Host "Restoring packages..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' restore"
+
+  build:
+    commands:
+      - Write-Host "Building project..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' build -c $env:CONFIGURATION --no-restore"
+
+  post_build:
+    commands:
+      - Write-Host "Preparing artifact structure..."
+      # remove old app folder if exists
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path 'app') { Remove-Item -Recurse -Force 'app' }"
+      # publish directly into top-level 'app' folder (CodeDeploy expects app/ at root of zip)
+      - Write-Host "Publishing to 'app'..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' publish 'pipe\\pipe\\pipe.csproj' -c $env:CONFIGURATION -o 'app'"
+
+      # sanity checks and include appspec + scripts in artifact
+      - Write-Host "Listing app contents..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -Recurse app | Select-Object FullName"
+
+      - Write-Host "Ensure appspec.yml and scripts are present (will be included in artifact)."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "if (-not (Test-Path 'appspec.yml')) { Write-Host 'WARNING: appspec.yml not found at repo root' } else { Write-Host 'appspec.yml found' }"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path 'scripts') { Write-Host 'scripts folder found' } else { Write-Host 'scripts not found - ok if no lifecycle scripts' }"
+
+      # create artifact.zip containing appspec.yml, scripts (if any), and app folder
+      - Write-Host "Creating artifact.zip with app, appspec.yml and scripts..."
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path 'artifact.zip') { Remove-Item -Force 'artifact.zip' -ErrorAction SilentlyContinue }; Compress-Archive -Path @( 'app' , 'appspec.yml' , 'scripts' ) -DestinationPath 'artifact.zip' -Force; Write-Host 'artifact.zip created at' (Join-Path (Get-Location) 'artifact.zip')"
+      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host 'Contents of artifact.zip:'; & 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command \"Expand-Archive -LiteralPath 'artifact.zip' -DestinationPath 'artifact_inspect' -Force; Get-ChildItem -Recurse .\\artifact_inspect | Select-Object FullName\" || Write-Host 'Inspection skipped (pwsh not present)'; if (Test-Path 'artifact_inspect') { Remove-Item -Recurse -Force 'artifact_inspect' -ErrorAction SilentlyContinue }"
 
 artifacts:
   files:
     - artifact.zip
+  discard-paths: yes
