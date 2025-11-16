@@ -2,7 +2,7 @@ version: 0.0
 os: windows
 
 files:
-  - source: app/
+  - source: app
     destination: C:\inetpub\wwwroot
 
 hooks:
