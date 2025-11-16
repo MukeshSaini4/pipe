@@ -7,4 +7,6 @@ phases:
 
 artifacts:
   files:
-    - artifact.zip
+    - '**/*'
+  base-directory: dist
+  discard-paths: no
