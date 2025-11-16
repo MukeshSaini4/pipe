@@ -1,38 +1,10 @@
 version: 0.2
 
-env:
-  variables:
-    DOTNET_VERSION: "8.0.405"
-    CONFIGURATION: "Release"
-  shell: pwsh
-
 phases:
   install:
     commands:
-      - Write-Host "Downloading dotnet-install..."
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1"
-      - powershell -NoProfile -ExecutionPolicy Bypass -File ./dotnet-install.ps1 -Version $env:DOTNET_VERSION -InstallDir C:\dotnet
-      - Write-Host "Adding C:\dotnet to PATH for this session"
-      - powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:PATH = 'C:\dotnet;'+$env:PATH; Write-Host $env:PATH"
-
-  pre_build:
-    commands:
-      - Write-Host "Restoring packages..."
-      - pwsh -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' restore"
-
-  build:
-    commands:
-      - Write-Host "Building..."
-      - pwsh -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\dotnet\dotnet.exe' build -c $env:CONFIGURATION --no-restore"
-
-  post_build:
-    commands:
-      - Write-Host "POST_BUILD: invoke repo publish script (publish.ps1) from repo root"
-      - pwsh -NoProfile -ExecutionPolicy Bypass -File ./publish.ps1
-      - Write-Host "POST_BUILD: package published output if folder 'app' exists"
-      - pwsh -NoProfile -ExecutionPolicy Bypass -Command "if (Test-Path artifact.zip) { Remove-Item artifact.zip -Force }; if (Test-Path app) { Compress-Archive -Path 'app\\*' -DestinationPath artifact.zip -Force; Write-Host 'artifact.zip created' } else { Write-Host 'app folder not found; skipping packaging' }"
+      - powershell -NoProfile -ExecutionPolicy Bypass -File build\publish.ps1
 
 artifacts:
   files:
     - artifact.zip
-  discard-paths: yes
